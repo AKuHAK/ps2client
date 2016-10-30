@@ -1,129 +1,256 @@
-
 #ifdef _WIN32
- #include <windows.h>
+ #ifndef WIN32_LEAN_AND_MEAN
+ #define WIN32_LEAN_AND_MEAN
+ #endif
  #include <winsock2.h>
+ #include <ws2tcpip.h>
+ #include "winthread.h"
 #else
- #include <netdb.h>
- #include <unistd.h>
  #include <sys/socket.h>
- #include <sys/time.h>
- #include <netinet/in.h>
+ #include <sys/select.h>
+ #include <string.h>
+ #include <unistd.h>
+ #include <netdb.h>
+ #include <pthread.h>
 #endif
 
- #include "network.h"
+#include "network.h"
+#include "utility.h"
 
- ///////////////////////
- // NETWORK FUNCTIONS //
- ///////////////////////
+static pthread_mutex_t network_mutex;
+
+/* Valid IPs and hostnames should pass even if the service is unavailable. */
+int network_validate_hostname(char *hostname, char *service, int type)
+{
+  struct addrinfo hints, *servinfo = NULL;
+  int ret;
+
+  memset(&hints, 0, sizeof(hints));
+  hints.ai_family = AF_INET;
+  hints.ai_socktype = type;
+
+  if ((ret = getaddrinfo(hostname, service, &hints, &servinfo)) != 0 ) {
+    fprintf_locked(stderr, 0, "Error: %s: %s\n", hostname, gai_strerror(ret));
+  }
+
+  if( servinfo != NULL )
+    freeaddrinfo(servinfo);
+
+  return ret;
+}
+
+int network_init_once(void)
+{
+  return pthread_mutex_init(&network_mutex, NULL);
+}
+
+int network_deinit_once(void)
+{
+  return pthread_mutex_destroy(&network_mutex);
+}
+
 
 #ifdef _WIN32
- int network_startup(void) {
+int network_startup(void)
+{
   WSADATA wsaData;
 
-  // Start up winsock.
-  if (WSAStartup(MAKEWORD(2, 0), &wsaData) != 0) { return -1; }
+  pthread_mutex_lock(&network_mutex);
 
-  // End function.  
-  return 0;
+  if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0)
+    fprintf_locked(stderr, 0, "Error: Winsock could not be initialized.\n");
 
- }
+#ifdef DEBUG
+  if (LOBYTE(wsaData.wVersion) == 2 && HIBYTE(wsaData.wVersion) == 2)
+    fprintf_locked(stderr, 0, "Winsock status: %s.\n", wsaData.szSystemStatus);
 #endif
 
- int network_connect(char *hostname, int port, int type) { int sock = -1;
-  struct sockaddr_in sockaddr;
+  pthread_mutex_unlock(&network_mutex);
 
-  // Populate the sockaddr structure.
-  sockaddr.sin_family = AF_INET;
-  sockaddr.sin_port = htons(port);
-  sockaddr.sin_addr = *(struct in_addr *)gethostbyname(hostname)->h_addr;
+  return 0;
+}
+#endif
 
-  // Open the socket.
-  sock = socket(AF_INET, type, 0); if (sock < 0) { return -1; }
+int network_connect(char *hostname, char *service, int type)
+{
+  int sock = -1;
+  int ret = 0;
+  struct addrinfo hints, *servinfo = NULL;
+  struct sockaddr *sockaddr = NULL;
 
-  // Connect the socket.
-  if (connect(sock, (struct sockaddr *)&sockaddr, sizeof(struct sockaddr)) < 0) { return -2; }
+  pthread_mutex_lock(&network_mutex);
 
-  // Return the socket.
+  memset(&hints, 0, sizeof(hints));
+  hints.ai_family = AF_INET;
+  hints.ai_socktype = type;
+
+  if ((ret = getaddrinfo(hostname, service, &hints, &servinfo)) != 0 ) {
+    fprintf_locked(stderr, 0, "Error: %s: %s\n", hostname, gai_strerror(ret));
+    pthread_mutex_unlock(&network_mutex);
+    return -1;
+  }
+
+  if (servinfo != NULL)
+    sockaddr = servinfo->ai_addr;
+
+  sock = socket(AF_INET, type, 0);
+
+  if (sock > 0 && sockaddr != NULL)
+    ret = connect(sock, sockaddr, sizeof(struct sockaddr));
+
+  if( servinfo != NULL )
+    freeaddrinfo(servinfo);
+
+  pthread_mutex_unlock(&network_mutex);
+
+  if (ret < 0)
+    return -2;
+
   return sock;
+}
 
- }
-
- int network_listen(int port, int type) { int sock = -1;
+int network_listen(int port, int type)
+{
+  int sock = -1;
+  int ret = 0;
   struct sockaddr_in sockaddr;
 
-  // Populate the sockaddr structure.
+  pthread_mutex_lock(&network_mutex);
+
   sockaddr.sin_family = AF_INET;
   sockaddr.sin_port = htons(port);
   sockaddr.sin_addr.s_addr = htonl(INADDR_ANY);
 
-  // Create the socket.
-  sock = socket(AF_INET, type, 0); if (sock < 0) { return -1; }
+  sock = socket(AF_INET, type, 0);
 
-  // Bind the socket.
-  if (bind(sock, (struct sockaddr *)&sockaddr, sizeof(struct sockaddr)) < 0) { return -1; }
+  if (sock > 0)
+    ret = bind(sock, (struct sockaddr *)&sockaddr, sizeof(struct sockaddr));
 
-  // Return the socket.
+  pthread_mutex_unlock(&network_mutex);
+
+  if (ret < 0)
+    return -1;
+
   return sock;
+}
 
- }
+/* Disconnect and shutdown functions */
+int network_disconnect(int sock)
+{
+  int ret = 0;
 
- int network_send(int sock, void *buffer, int size) { int total = 0;
+  pthread_mutex_lock(&network_mutex);
 
-  // Keep sending data until it has all been sent.
-  while (total < size) { total += send(sock, &((char *)buffer)[total], size - total, 0); }
-
-  // Return the total bytes sent.
-  return total;
-
- }
-
- int network_wait(int sock, int timeout) {
-  fd_set nfds; struct timeval tv;
-
-  // Initialize the rdfs structure.
-  FD_ZERO(&nfds); FD_SET(sock, &nfds);
-
-  // Populate the tv structure.
-  tv.tv_sec = timeout; tv.tv_usec = 0;
-
-  // No timeout was specified, so wait forever.
-  if (timeout < 0) { return select(FD_SETSIZE, &nfds, NULL, NULL, NULL); }
-
-  // A timeout was specified, so wait until the time has elapsed.
-  else { return select(FD_SETSIZE, &nfds, NULL, NULL, &tv); }
-
-  // End function.
-  return 0;
-
- }
-
- int network_receive(int sock, void *buffer, int size) {
-
-  // Receive the data from the socket.
-  return recvfrom(sock, buffer, size, 0, NULL, NULL);
-
- }
-
- int network_receive_all(int sock, void *buffer, int size) { int total = 0;
-
-  // Receive the data from the socket.
-  while (total < size) { total += recvfrom(sock, &((char *)buffer)[total], size - total, 0, NULL, NULL); }
-
-  // Return the total bytes received.
-  return total;
-
- }
-
- int network_disconnect(int sock) {
-
-  // Close the socket.
 #ifdef _WIN32
-  if (closesocket(sock) < 0) { return -1; }
-#else
-  if (close(sock) < 0) { return -1; }
+  ret = closesocket(sock);
+
+#ifdef DEBUG
+  if (ret < 0)
+    fprintf_locked(stderr, 0,
+		   "Error: failure to close socket %d\n", WSAGetLastError());
+#endif /* DEBUG */
+
+#else /* !_WIN32 */
+  ret = close(sock);
+
+#ifdef DEBUG
+  if (ret < 0)
+    fprintf_locked(stderr, 0, "Error: failure to close socket\n");
+#endif /* DEBUG */
+
+#endif /* _WIN32 */
+
+  pthread_mutex_unlock(&network_mutex);
+
+  return ret;
+}
+
+#ifdef _WIN32
+int network_cleanup(void)
+{
+  pthread_mutex_lock(&network_mutex);
+
+  if (WSACleanup() == SOCKET_ERROR) {
+#ifdef DEBUG
+    fprintf_locked(stderr, 0, "Error: WSACleanup() %d\n", WSAGetLastError());
+#endif
+  }
+
+  pthread_mutex_unlock(&network_mutex);
+
+  return 0;
+}
 #endif
 
-  // End function.
-  return 0;
+/* Send and receive functions */
+int network_send(int sock, void *buffer, int size)
+{
+  int total = 0;
+  int sent = 0;
 
- }
+  do {
+    sent = send(sock, ((char*)buffer)+total, size - total, 0);
+
+    if (!sent)
+      return -1;
+
+    if (sent > 0)
+      total += sent;
+
+  } while (total != size);
+
+  return total;
+}
+
+int network_wait(int sock, int timeout)
+{
+  fd_set nfds;
+  struct timeval tv;
+
+  FD_ZERO(&nfds);
+  FD_SET(sock, &nfds);
+
+  tv.tv_sec = timeout;
+  tv.tv_usec = 0;
+
+  if (timeout < 0) {
+    if (select(FD_SETSIZE, &nfds, NULL, NULL, NULL) < 0)
+      return -1;
+  }
+  else {
+    if (select(FD_SETSIZE, &nfds, NULL, NULL, &tv) < 0);
+      return -1;
+  }
+
+  return 0;
+}
+
+int network_receive(int sock, void *buffer, int size)
+{
+
+  int total;
+
+  total = recvfrom(sock, buffer, size, 0, NULL, NULL);
+
+  return total;
+}
+
+int network_receive_all(int sock, void *buffer, int size)
+{
+  int total = 0;
+  int recvd = 0;
+
+  do {
+    recvd = recv(sock, ((char*)buffer)+total, size - total, 0);
+
+    if (!recvd)
+      return -1;
+
+    if (recvd > 0)
+      total += recvd;
+
+  } while (total != size);
+
+  return total;
+}
+

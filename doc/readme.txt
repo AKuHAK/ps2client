@@ -122,8 +122,6 @@
   If you want to get into the wonderful world of homebrew ps2
   development, there's a few places you can check out:
 
-  http://www.ps2dev.org     - News, tutorials and documentation.
-
-  http://forums.ps2dev.org  - The official ps2dev forums.
+  http://github.com/ps2dev
 
   #ps2dev on freenode (IRC) - Come banter in realtime.

@@ -1,28 +1,24 @@
 #ifndef __FSCLIENT__
 #define __FSCLIENT__
 
- ////////////////////////
- // FSCLIENT FUNCTIONS //
- ////////////////////////
+int fsclient_get(int sock, char *pkt, char *source, char *destination);
 
- int fsclient_copyfrom(char *source, char *destination);
+int fsclient_send(int sock, char *pkt, char *source, char *destination);
 
- int fsclient_copyto(char *source, char *destination);
+int fsclient_remove(int sock, char *pkt, char *pathname);
 
- int fsclient_delete(char *pathname);
+int fsclient_lsdev(int sock, char *pkt);
 
- int fsclient_devlist(void);
+int fsclient_ls(int sock, char *pkt, char *pathname);
 
- int fsclient_dir(char *pathname);
+int fsclient_mkdir(int sock, char *pkt, char *pathname);
 
- int fsclient_mkdir(char *pathname);
+int fsclient_mount(int sock, char *pkt, char *device, char *fsname, char *type);
 
- int fsclient_mount(char *device, char *fsname);
+int fsclient_rmdir(int sock, char *pkt, char *pathname);
 
- int fsclient_rmdir(char *pathname);
+int fsclient_sync(int sock, char *pkt, char *device);
 
- int fsclient_sync(char *device);
-
- int fsclient_umount(char *device);
+int fsclient_umount(int sock, char *pkt, char *device);
 
 #endif

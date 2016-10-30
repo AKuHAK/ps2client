@@ -1,18 +1,21 @@
 #ifndef __UTILITY_H__
 #define __UTILITY_H__
 
- #define PACKED __attribute__((packed))
+#include <stdio.h>
 
- ///////////////////////
- // UTILITY FUNCTIONS //
- ///////////////////////
+void sleep_ms(int msecs);
 
- int fix_flags(int flags);
+int fprintf_init_once(void);
 
- int fix_pathname(char *pathname);
+int fprintf_deinit_once(void);
 
- int fix_argv(char *destination, char **argv);
+int fprintf_locked(FILE* stream, int color, const char *format, ...);
 
- int print_usage(void);
+int fix_flags(int flags);
+
+int fix_pathname(char *pathname);
+
+int fix_argv(char *destination, char **argv);
 
 #endif
+
