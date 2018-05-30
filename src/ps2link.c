@@ -37,6 +37,8 @@ pthread_t console_thread_id;
 pthread_t host_thread_id;
 #endif
 
+
+
 #ifdef _WIN32
 BOOL WINAPI ConsoleHandler(DWORD event)
 {
@@ -44,8 +46,14 @@ BOOL WINAPI ConsoleHandler(DWORD event)
     case CTRL_C_EVENT:
     case CTRL_BREAK_EVENT:
     case CTRL_CLOSE_EVENT:
+      // If it didn't exit from the first signal, let the default
+      // handler handle the process since Windows blocks for 10 seconds or
+      // more when making connections.
+      if (ps2link_exit) return FALSE;
+
       // Signal the threads to exit
       ps2link_exit = 1;
+
       return TRUE;
   }
 
@@ -106,50 +114,18 @@ int ps2link_mainloop(int timeout)
   }
 
   if (timeout < 0) {
-    for(;;) {
-      if (ps2link_exit == 1) break;
+    while (!ps2link_exit) {
       sleep_ms(1000);
     }
   }
   else {
-    while(ps2link_counter++ < timeout) {
+    while(!ps2link_exit && ps2link_counter++ < timeout) {
       sleep_ms(1000);
-    };
+    }
     ps2link_exit = 1;
   }
 
   return 0;
-}
-
-int ps2link_connect_host(char *hostname)
-{
-  int sock = -1;
-#ifdef _WIN32
-  u_long enable = 1;
-#endif
-
-  fprintf_locked(stdout, 0,"Waiting on connection...\n");
-
-  sock = network_connect(hostname, HOST_TCP_PORT, SOCK_STREAM);
-
-  while (sock < 0) {
-    if (ps2link_exit) break;
-    sock = network_connect(hostname, HOST_TCP_PORT, SOCK_STREAM);
-  }
-
-  if (sock > 0) {
-    fprintf_locked(stdout, 0,
-		   "Connected to %s for host: requests.\n", hostname);
-
-    // Setup a non-blocking socket
-#ifdef _WIN32
-    ioctlsocket(sock, FIONBIO, &enable);
-#else
-    fcntl(sock, F_SETFL, O_NONBLOCK);
-#endif
-  }
-
-  return sock;
 }
 
 /* PS2Link commands */
@@ -355,6 +331,8 @@ int ps2link_writemem(char *hostname, char *pkt, unsigned int offset,
   return ps2link_send_command(hostname, pkt, PS2LINK_WRITEMEM_CMD, 270);
 }
 
+int network_wait1(int sock, int timeout);
+
 /* PS2Link threads */
 #ifdef _WIN32
 void ps2link_console_thread(void *hostname)
@@ -367,7 +345,7 @@ void *ps2link_console_thread(void *hostname)
 
 #ifdef _WIN32
   // The WSAStartup() call seems to be needed in each thread
- network_startup();
+  network_startup();
 #endif
 
   console_socket = network_listen(PS2LINK_STDOUT_PORT, SOCK_DGRAM);
@@ -375,43 +353,77 @@ void *ps2link_console_thread(void *hostname)
   ps2link_counter = 0;
 
   if (console_socket > 0)
-    fprintf_locked(stdout, 0, "Listening for stdout.\n");
+    fprintf_locked(stdout, 0, "Listening for tty0: output.\n");
 
   memset(buffer, 0, sizeof(buffer));
 
-  for(;;) {
-    if (ps2link_exit) break;
+  while(!ps2link_exit) {
 
-    network_wait(console_socket, -1);
+    if (network_wait1(console_socket, -1) > 0) {
 
-    network_receive(console_socket, buffer, sizeof(buffer));
+      network_receive(console_socket, buffer, sizeof(buffer));
 
-    // I used bright green to differentiate output from PS2 while debugging
-    // and figured it'd be a nice feature.
 #if defined(WINDOWS_CMD) || defined(UNIX_TERM)
-    fprintf_locked(stdout, 1, "%s", buffer);
+      // This sets colorized output, see utility.c
+      fprintf_locked(stdout, 1, "%s", buffer);
 #else
-    fprintf_locked(stdout, 0, "%s", buffer);
+      fprintf_locked(stdout, 0, "%s", buffer);
 #endif
 
-    memset(buffer, 0, sizeof(buffer));
+      memset(buffer, 0, sizeof(buffer));
 
-    ps2link_counter = 0;
+      ps2link_counter = 0;
+     }
   }
 
-  if (network_disconnect(console_socket) < 0) {
-#ifdef DEBUG
-     fprintf_locked(stderr, 0, "Error: closing stdout socket failed.\n");
+#if defined(WINDOWS_CMD)
+  // Clears out the buffer if using color to prevent it from sticking
+  fprintf_locked(stdout, 1, "\n", buffer);
 #endif
+
+  if (console_socket > 0) {
+    if (network_disconnect(console_socket) < 0) {
+#ifdef DEBUG
+       fprintf_locked(stderr, 0, "Error: closing stdout socket failed.\n");
+#endif
+    }
   }
 
 #ifdef _WIN32
   network_cleanup();
 #endif
 
+#ifdef DEBUG
+  fprintf_locked(stdout, 0, "console thread closed\n");
+#endif
+
 #ifndef _WIN32
   return NULL;
 #endif
+}
+
+int ps2link_connect_host(char *hostname)
+{
+  int sock = -1;
+#ifdef _WIN32
+  u_long enable = 1;
+#endif
+
+  sock = network_connect(hostname, HOST_TCP_PORT, SOCK_STREAM);
+
+  if (sock > 0) {
+    fprintf_locked(stdout, 0,
+		   "host: Connected to %s for requests.\n", hostname);
+
+    // Setup a non-blocking socket
+#ifdef _WIN32
+    ioctlsocket(sock, FIONBIO, &enable);
+#else
+    fcntl(sock, F_SETFL, O_NONBLOCK);
+#endif
+  }
+
+  return sock;
 }
 
 #define HOST_PKTBUF_SIZE 1024
@@ -437,63 +449,66 @@ void *ps2link_host_thread(void *hostname)
 #endif
 
   // Connect to the request port.
-  host_socket = ps2link_connect_host((char*)hostname);
+  fprintf_locked(stdout, 0,"host: Waiting on connection...\n");
+  while (host_socket < 0 && !ps2link_exit) {
+  	host_socket = ps2link_connect_host((char*)hostname);
+  }
 
   // Loop forever...
-  while(1) {
+  while(!ps2link_exit) {
 
-    if (ps2link_exit) break;
+      // Prevent recv() from blocking
+      if (network_wait1(host_socket, -1) > 0) {
 
-    network_wait(host_socket, -1);
+      memset(pkt_hdr, 0, 6);
+      network_receive_all(host_socket, pkt_hdr, 6);
 
-    memset(pkt_hdr, 0, 6);
-    network_receive_all(host_socket, pkt_hdr, 6);
+      memcpy(&packet.number, pkt_hdr,   HOST_INT_SIZE);
+      memcpy(&packet.length, pkt_hdr+4, HOST_SHT_SIZE);
 
-    memcpy(&packet.number, pkt_hdr,   HOST_INT_SIZE);
-    memcpy(&packet.length, pkt_hdr+4, HOST_SHT_SIZE);
+      memset(packet.buffer, 0, HOST_PKTBUF_SIZE);
+      network_receive_all(host_socket, packet.buffer, ntohs(packet.length)-6);
 
-    memset(packet.buffer, 0, HOST_PKTBUF_SIZE);
-    network_receive_all(host_socket, packet.buffer, ntohs(packet.length)-6);
-
-    //dlanor: allows request functions to test previous
-    old_req = new_req;
-    new_req = ntohl(packet.number);
+      //dlanor: allows request functions to test previous
+      old_req = new_req;
+      new_req = ntohl(packet.number);
 
 #ifdef DEBUG
-    if (old_req != new_req)
-      fprintf_locked(stdout, 0, "New request = 0x%X\n",new_req);
+      if (old_req != new_req)
+        fprintf_locked(stdout, 0, "New request = 0x%X\n",new_req);
 #endif
 
-    if (new_req == HOST_OPEN_REQ)
-      ret = host_open(host_socket, (char*)&packet);
-    else if (new_req == HOST_CLOSE_REQ)
-      ret = host_close(host_socket, (char*)&packet);
-    else if (new_req == HOST_READ_REQ)
-      ret = host_read(host_socket, (char*)&packet);
-    else if (new_req == HOST_WRITE_REQ)
-      ret = host_write(host_socket, (char*)&packet);
-    else if (new_req == HOST_LSEEK_REQ)
-      ret = host_lseek(host_socket, (char*)&packet);
-    else if (new_req == HOST_OPENDIR_REQ)
-      ret = host_opendir(host_socket, (char*)&packet);
-    else if (new_req == HOST_CLOSEDIR_REQ)
-      ret = host_closedir(host_socket, (char*)&packet);
-    else if (new_req == HOST_READDIR_REQ)
-      ret = host_readdir(host_socket, (char*)&packet);
-    else if (new_req == HOST_REMOVE_REQ)
-      ret = host_remove(host_socket, (char*)&packet);
-    else if (new_req == HOST_MKDIR_REQ)
-      ret = host_mkdir(host_socket, (char*)&packet);
-    else if (new_req == HOST_RMDIR_REQ)
-      ret = host_rmdir(host_socket, (char*)&packet);
-    else if (new_req == HOST_IOCTL_REQ)
-      ret = host_ioctl(host_socket, (char*)&packet);
+      if (new_req == HOST_OPEN_REQ)
+	ret = host_open(host_socket, (char*)&packet);
+      else if (new_req == HOST_CLOSE_REQ)
+	ret = host_close(host_socket, (char*)&packet);
+      else if (new_req == HOST_READ_REQ)
+	ret = host_read(host_socket, (char*)&packet);
+      else if (new_req == HOST_WRITE_REQ)
+	ret = host_write(host_socket, (char*)&packet);
+      else if (new_req == HOST_LSEEK_REQ)
+	ret = host_lseek(host_socket, (char*)&packet);
+      else if (new_req == HOST_OPENDIR_REQ)
+	ret = host_opendir(host_socket, (char*)&packet);
+      else if (new_req == HOST_CLOSEDIR_REQ)
+	ret = host_closedir(host_socket, (char*)&packet);
+      else if (new_req == HOST_READDIR_REQ)
+	ret = host_readdir(host_socket, (char*)&packet);
+      else if (new_req == HOST_REMOVE_REQ)
+	ret = host_remove(host_socket, (char*)&packet);
+      else if (new_req == HOST_MKDIR_REQ)
+	ret = host_mkdir(host_socket, (char*)&packet);
+      else if (new_req == HOST_RMDIR_REQ)
+	ret = host_rmdir(host_socket, (char*)&packet);
+      else if (new_req == HOST_IOCTL_REQ)
+	ret = host_ioctl(host_socket, (char*)&packet);
 
-    if (ret < 0)
-      fprintf_locked(stderr, 0, "Error: host: reply failed\n");
+      if (ret < 0)
+	fprintf_locked(stderr, 0, "Error: host: reply failed\n");
 
-    // Reset the timeout counter.
-    ps2link_counter = 0;
+      // Reset the timeout counter.
+      ps2link_counter = 0;
+    }
   }
 
   host_cleanup();
@@ -509,6 +524,10 @@ void *ps2link_host_thread(void *hostname)
 
 #ifdef _WIN32
   network_cleanup();
+#endif
+
+#ifdef DEBUG
+  fprintf_locked(stdout, 0, "host thread closed\n");
 #endif
 
 #ifndef _WIN32

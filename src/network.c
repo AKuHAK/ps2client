@@ -225,6 +225,26 @@ int network_wait(int sock, int timeout)
   return 0;
 }
 
+int network_wait1(int sock, int timeout)
+{
+  fd_set nfds;
+  struct timeval tv;
+
+  FD_ZERO(&nfds);
+  FD_SET(sock, &nfds);
+
+  tv.tv_sec = timeout;
+  tv.tv_usec = 0;
+
+  if (timeout < 0) {
+    tv.tv_sec = 1;
+    tv.tv_usec = 0;
+  }
+
+  return select(FD_SETSIZE, &nfds, NULL, NULL, &tv);
+
+}
+
 int network_receive(int sock, void *buffer, int size)
 {
 
