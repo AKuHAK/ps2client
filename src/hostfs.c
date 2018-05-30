@@ -502,17 +502,13 @@ int host_readdir(int sock, char *pkt)
 #endif
 
   // reply.mode
-  // FIXME: IOMAN conversion is fine here, but
-  //        PS2Link's IOP module needs to be updated to support IOMANX
   reply.mode = (stats.st_mode & 0x07);
   if (S_ISDIR(stats.st_mode)) {
     reply.mode |= 0x20;
   }
   // Works on windows since msvcr80
   // Not sure about MinGW/mingw-w64
-  if (S_ISLNK(stats.st_mode)) {
-    reply.mode |= 0x08;
-  }
+
   if (S_ISREG(stats.st_mode)) {
     reply.mode |= 0x10;
   }
