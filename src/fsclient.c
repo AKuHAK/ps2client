@@ -311,9 +311,9 @@ int fsclient_get(int sock, char *pkt, char *source, char *destination)
   fprintf_locked(stdout, 0, "\n [%s --> %s]\n\n", source, destination);
   fprintf_locked(stdout, 0, "\n" 
 "\
-  Warning: Interrupting the transfer will leave open file descriptors and will\
+  Warning: Interrupting the transfer may leave open file descriptors. To fix,\
 \n\
-           require a reset to fix.\n\n");
+           rerun the file server or reboot the PS2.\n\n");
 
   while(total < size) {
 
@@ -399,9 +399,9 @@ int fsclient_send(int sock, char *pkt, char *source, char *destination)
   fprintf_locked(stdout, 0, "\n [%s --> %s]\n\n", source, destination);
   fprintf_locked(stdout, 0, "\n"
 "\
-  Warning: Interrupting the transfer will leave open file descriptors and will\
+  Warning: Interrupting the transfer may leave open file descriptors. To fix,\
 \n\
-           require a reset to fix.\n\n");
+           rerun the file server or reboot the PS2.\n\n");
 
   while(total < size) {
 
