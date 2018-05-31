@@ -470,9 +470,7 @@ void *ps2link_host_thread(void *hostname)
     fprintf_locked(stdout, 0, "host: Connection ready.\n");
   }
 
-  // Loop forever...
   while(!host_exit) {
-
       if ((ret = network_wait_read(host_socket, -1)) > 0) {
       if (ret == -1) continue;
 
@@ -484,7 +482,8 @@ void *ps2link_host_thread(void *hostname)
       memcpy(&packet.length, pkt_hdr+4, HOST_SHT_SIZE);
 
       memset(packet.buffer, 0, HOST_PKTBUF_SIZE);
-      network_receive_all(host_socket, packet.buffer, ntohs(packet.length)-6);
+      ret = network_receive_all(host_socket, packet.buffer, ntohs(packet.length)-6);
+      if (ret == -1) continue;
 
       //dlanor: allows request functions to test previous
       old_req = new_req;

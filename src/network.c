@@ -253,6 +253,9 @@ int network_send(int sock, void *buffer, int size)
   do {
     sent = send(sock, ((char*)buffer)+total, size - total, 0);
 
+    if (sent < 0)
+      return -1;
+
     if (!sent)
       return -1;
 
@@ -342,6 +345,9 @@ int network_receive_all(int sock, void *buffer, int size)
 
   do {
     recvd = recv(sock, ((char*)buffer)+total, size - total, 0);
+
+    if (recvd < 0)
+      return -1;
 
     if (!recvd)
       return -1;
