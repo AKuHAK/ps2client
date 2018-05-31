@@ -10,6 +10,7 @@
  #include <sys/select.h>
  #include <string.h>
  #include <unistd.h>
+ #include <fcntl.h>
  #include <netdb.h>
  #include <pthread.h>
 #endif
@@ -49,7 +50,6 @@ int network_deinit_once(void)
   return pthread_mutex_destroy(&network_mutex);
 }
 
-
 #ifdef _WIN32
 int network_startup(void)
 {
@@ -71,12 +71,36 @@ int network_startup(void)
 }
 #endif
 
+int network_wait_rw(int sock)
+{
+  fd_set wfds;
+  fd_set rfds;
+
+  struct timeval tv;
+
+  FD_ZERO(&wfds);
+  FD_ZERO(&rfds);
+
+  FD_SET(sock, &wfds);
+  FD_SET(sock, &rfds);
+
+  tv.tv_sec = 0;
+  tv.tv_usec = 100000;
+
+  return select(FD_SETSIZE, &rfds, &wfds, NULL, &tv);
+}
+
 int network_connect(char *hostname, char *service, int type)
 {
   int sock = -1;
   int ret = 0;
   struct addrinfo hints, *servinfo = NULL;
   struct sockaddr *sockaddr = NULL;
+#ifndef _WIN32
+  socklen_t sockopt = 0, optsize = 0;
+#else
+  u_long enable = 1;
+#endif
 
   pthread_mutex_lock(&network_mutex);
 
@@ -93,18 +117,51 @@ int network_connect(char *hostname, char *service, int type)
   if (servinfo != NULL)
     sockaddr = servinfo->ai_addr;
 
-  sock = socket(AF_INET, type, 0);
+  if (type == SOCK_DGRAM)
+    sock = socket(PF_INET, type, IPPROTO_UDP);
+  else if (type == SOCK_STREAM) {
+    sock = socket(PF_INET, type, IPPROTO_TCP);
 
-  if (sock > 0 && sockaddr != NULL)
-    ret = connect(sock, sockaddr, sizeof(struct sockaddr));
+    if (sock > 0) {
+#ifdef _WIN32
+      ioctlsocket(sock, FIONBIO, &enable);
+#else
+      fcntl(sock, F_SETFL, O_NONBLOCK);
+#endif
+    }
+  }
 
-  if( servinfo != NULL )
+  if (sock > 0 && sockaddr != NULL) {
+    connect(sock, sockaddr, sizeof(struct sockaddr));
+
+    ret = network_wait_rw(sock);
+      
+#ifndef _WIN32
+    if (ret > 1) {
+      getsockopt(sock, SOL_SOCKET, SO_ERROR,
+                      &sockopt, &optsize);
+      if (!sockopt)
+        ret = 0;
+    }
+#else
+#ifdef DEBUG
+   fprintf_locked(stdout, 0, "Error status = %d\n", WSAGetLastError());
+#endif
+#endif
+  }
+
+  if (servinfo != NULL)
     freeaddrinfo(servinfo);
 
   pthread_mutex_unlock(&network_mutex);
 
-  if (ret < 0)
+  // If ret == 0, it means the connection timed out.
+  if (ret <= 0) {
+     if (sock > 0)
+       network_disconnect(sock);
+
     return -2;
+  }
 
   return sock;
 }
@@ -121,7 +178,10 @@ int network_listen(int port, int type)
   sockaddr.sin_port = htons(port);
   sockaddr.sin_addr.s_addr = htonl(INADDR_ANY);
 
-  sock = socket(AF_INET, type, 0);
+  if (type == SOCK_DGRAM)
+    sock = socket(PF_INET, type, IPPROTO_UDP);
+  else if (type == SOCK_STREAM)
+    sock = socket(PF_INET, type, IPPROTO_TCP);
 
   if (sock > 0)
     ret = bind(sock, (struct sockaddr *)&sockaddr, sizeof(struct sockaddr));
@@ -142,6 +202,7 @@ int network_disconnect(int sock)
   pthread_mutex_lock(&network_mutex);
 
 #ifdef _WIN32
+  shutdown(sock,SD_BOTH);
   ret = closesocket(sock);
 
 #ifdef DEBUG
@@ -151,6 +212,7 @@ int network_disconnect(int sock)
 #endif /* DEBUG */
 
 #else /* !_WIN32 */
+  shutdown(sock, SHUT_RDWR);
   ret = close(sock);
 
 #ifdef DEBUG
@@ -225,13 +287,13 @@ int network_wait(int sock, int timeout)
   return 0;
 }
 
-int network_wait1(int sock, int timeout)
+int network_wait_read(int sock, int timeout)
 {
-  fd_set nfds;
+  fd_set rfds;
   struct timeval tv;
 
-  FD_ZERO(&nfds);
-  FD_SET(sock, &nfds);
+  FD_ZERO(&rfds);
+  FD_SET(sock, &rfds);
 
   tv.tv_sec = timeout;
   tv.tv_usec = 0;
@@ -241,8 +303,26 @@ int network_wait1(int sock, int timeout)
     tv.tv_usec = 0;
   }
 
-  return select(FD_SETSIZE, &nfds, NULL, NULL, &tv);
+  return select(FD_SETSIZE, &rfds, NULL, NULL, &tv);
+}
 
+int network_wait_write(int sock, int timeout)
+{
+  fd_set wfds;
+  struct timeval tv;
+
+  FD_ZERO(&wfds);
+  FD_SET(sock, &wfds);
+
+  tv.tv_sec = timeout;
+  tv.tv_usec = 0;
+
+  if (timeout < 0) {
+    tv.tv_sec = 1;
+    tv.tv_usec = 0;
+  }
+
+  return select(FD_SETSIZE, NULL, &wfds, NULL, &tv);
 }
 
 int network_receive(int sock, void *buffer, int size)

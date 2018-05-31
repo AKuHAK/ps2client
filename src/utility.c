@@ -16,9 +16,9 @@
 #endif
 
 #ifdef WINDOWS_CMD
- #define PS2LINK_STDOUT_COLOR (FOREGROUND_GREEN | FOREGROUND_INTENSITY)
+ #define PS2LINK_TTY0_COLOR (FOREGROUND_GREEN | FOREGROUND_INTENSITY)
 #elif defined(UNIX_TERM)
- #define PS2LINK_STDOUT_COLOR "\x1b[1;32m"
+ #define PS2LINK_TTY0_COLOR "\x1b[1;32m"
  #define PS2LINK_NORMAL_COLOR "\x1b[0;0m"
 #endif
 
@@ -68,9 +68,9 @@ int fprintf_locked(FILE *stream, int color, const char *format, ...)
     hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
     GetConsoleScreenBufferInfo(hConsole, &consoleInfo);
     consoleAttr = consoleInfo.wAttributes;
-    SetConsoleTextAttribute(hConsole, PS2LINK_STDOUT_COLOR);
+    SetConsoleTextAttribute(hConsole, PS2LINK_TTY0_COLOR);
 #elif defined(UNIX_TERM)
-    fprintf(stream, PS2LINK_STDOUT_COLOR);
+    fprintf(stream, PS2LINK_TTY0_COLOR);
 #endif
   }
 

@@ -11,6 +11,7 @@
  #include <string.h>
  #include <signal.h>
  #include <pthread.h>
+ #include <stdlib.h>
 #endif
 
 #include "hostfs.h"
@@ -22,22 +23,38 @@
 #define PS2LINK_SHT_SIZE	2
 
 // Used for listening to stdout and sending commands
-#define PS2LINK_STDOUT_PORT	0x4712
-#define PS2LINK_UDP_PORT	"18194"
+#define PS2LINK_TTY_PORT	 18194
+#define PS2LINK_CMD_SERV	"18194"
 
 // dlanor: Previous request ID.
 //         For uLaunchelf Rename Ioctl validity.
 int old_req = 0;
 
 int ps2link_counter = 0;
+
+int host_exit = 0;
+int host_exit_status = 0;
+int tty0_exit = 0;
+int tty0_exit_status = 0;
+
 int ps2link_exit = 0;
 
 #ifndef _WIN32
-pthread_t console_thread_id;
+pthread_t tty0_thread_id;
 pthread_t host_thread_id;
 #endif
 
+void ps2link_exit_threads(void)
+{
 
+  host_exit = 1;
+  while(!host_exit_status && !ps2link_exit) sleep_ms(100);
+  tty0_exit = 1;
+  while(!tty0_exit_status && !ps2link_exit) sleep_ms(100);
+
+
+  ps2link_exit = 1;
+}
 
 #ifdef _WIN32
 BOOL WINAPI ConsoleHandler(DWORD event)
@@ -46,13 +63,13 @@ BOOL WINAPI ConsoleHandler(DWORD event)
     case CTRL_C_EVENT:
     case CTRL_BREAK_EVENT:
     case CTRL_CLOSE_EVENT:
-      // If it didn't exit from the first signal, let the default
-      // handler handle the process since Windows blocks for 10 seconds or
-      // more when making connections.
+
+      // If it didn't exit from the first signal, let the default event
+      // handler handle the process.
       if (ps2link_exit) return FALSE;
 
       // Signal the threads to exit
-      ps2link_exit = 1;
+      ps2link_exit_threads();
 
       return TRUE;
   }
@@ -62,8 +79,22 @@ BOOL WINAPI ConsoleHandler(DWORD event)
 #else
 void sig_handler(int signo)
 {
-  // Signal the threads to exit
-  ps2link_exit = 1;
+  switch (signo) {
+    case SIGHUP:
+    case SIGINT:
+    case SIGQUIT:
+    case SIGTERM:
+
+      // If it didn't exit from the first signal, force exit
+      if (ps2link_exit) exit(1);
+
+      // Signal the threads to exit
+      ps2link_exit_threads();
+
+      break;
+    default:
+      break;
+  }
 }
 #endif
 
@@ -97,10 +128,10 @@ int ps2link_create_threads(char *hostname)
     fprintf_locked(stderr, 0, "Error: registering signal handler failed.\n");
 
 #ifdef _WIN32
-  _beginthread(ps2link_console_thread, 0, hostname);
+  _beginthread(ps2link_tty0_thread, 0, hostname);
   _beginthread(ps2link_host_thread, 0, hostname);
 #else
-  pthread_create(&console_thread_id, NULL, ps2link_console_thread, hostname);
+  pthread_create(&tty0_thread_id, NULL, ps2link_tty0_thread, hostname);
   pthread_create(&host_thread_id, NULL, ps2link_host_thread, hostname);
 #endif
 
@@ -110,6 +141,7 @@ int ps2link_create_threads(char *hostname)
 int ps2link_mainloop(int timeout)
 {
   if (timeout == 0) {
+    ps2link_exit_threads();
     return 0;
   }
 
@@ -122,7 +154,7 @@ int ps2link_mainloop(int timeout)
     while(!ps2link_exit && ps2link_counter++ < timeout) {
       sleep_ms(1000);
     }
-    ps2link_exit = 1;
+    if (!ps2link_exit) ps2link_exit_threads();
   }
 
   return 0;
@@ -138,7 +170,7 @@ int ps2link_send_command(char *hostname, char *pkt, unsigned int id,
   } cmd_hdr;
   int socket;
 
-  socket = network_connect(hostname, PS2LINK_UDP_PORT, SOCK_DGRAM);
+  socket = network_connect(hostname, PS2LINK_CMD_SERV, SOCK_DGRAM);
 
   cmd_hdr.number = htonl(id);
   cmd_hdr.length = htons(len);
@@ -331,37 +363,38 @@ int ps2link_writemem(char *hostname, char *pkt, unsigned int offset,
   return ps2link_send_command(hostname, pkt, PS2LINK_WRITEMEM_CMD, 270);
 }
 
-int network_wait1(int sock, int timeout);
+int network_wait_read(int sock, int timeout);
 
 /* PS2Link threads */
 #ifdef _WIN32
-void ps2link_console_thread(void *hostname)
+void ps2link_tty0_thread(void *hostname)
 #else
-void *ps2link_console_thread(void *hostname)
+void *ps2link_tty0_thread(void *hostname)
 #endif
 {
   char buffer[1024];
-  int console_socket = -1;
+  int tty0_socket = -1;
 
 #ifdef _WIN32
   // The WSAStartup() call seems to be needed in each thread
   network_startup();
 #endif
 
-  console_socket = network_listen(PS2LINK_STDOUT_PORT, SOCK_DGRAM);
+  tty0_socket = network_listen(PS2LINK_TTY_PORT, SOCK_DGRAM);
 
   ps2link_counter = 0;
 
-  if (console_socket > 0)
-    fprintf_locked(stdout, 0, "Listening for tty0: output.\n");
+  if (tty0_socket > 0)
+    fprintf_locked(stdout, 0, "tty0: Listening to %s/%u.\n",
+                     hostname, PS2LINK_TTY_PORT);
 
   memset(buffer, 0, sizeof(buffer));
 
-  while(!ps2link_exit) {
+  while(!tty0_exit) {
 
-    if (network_wait1(console_socket, -1) > 0) {
+    if (network_wait_read(tty0_socket, -1) > 0) {
 
-      network_receive(console_socket, buffer, sizeof(buffer));
+      network_receive(tty0_socket, buffer, sizeof(buffer));
 
 #if defined(WINDOWS_CMD) || defined(UNIX_TERM)
       // This sets colorized output, see utility.c
@@ -377,14 +410,15 @@ void *ps2link_console_thread(void *hostname)
   }
 
 #if defined(WINDOWS_CMD)
-  // Clears out the buffer if using color to prevent it from sticking
+  // Clears out the buffer
   fprintf_locked(stdout, 1, "\n", buffer);
+  fflush(stdout);
 #endif
 
-  if (console_socket > 0) {
-    if (network_disconnect(console_socket) < 0) {
+  if (tty0_socket > 0) {
+    if (network_disconnect(tty0_socket) < 0) {
 #ifdef DEBUG
-       fprintf_locked(stderr, 0, "Error: closing stdout socket failed.\n");
+       fprintf_locked(stderr, 0, "tty0: Closing connection failed.\n");
 #endif
     }
   }
@@ -393,38 +427,15 @@ void *ps2link_console_thread(void *hostname)
   network_cleanup();
 #endif
 
-#ifdef DEBUG
-  fprintf_locked(stdout, 0, "console thread closed\n");
-#endif
+  fprintf_locked(stdout, 0, "tty0: Disconnected.\n");
+  tty0_exit_status = 1;
 
 #ifndef _WIN32
   return NULL;
 #endif
 }
 
-int ps2link_connect_host(char *hostname)
-{
-  int sock = -1;
-#ifdef _WIN32
-  u_long enable = 1;
-#endif
-
-  sock = network_connect(hostname, HOST_TCP_PORT, SOCK_STREAM);
-
-  if (sock > 0) {
-    fprintf_locked(stdout, 0,
-		   "host: Connected to %s for requests.\n", hostname);
-
-    // Setup a non-blocking socket
-#ifdef _WIN32
-    ioctlsocket(sock, FIONBIO, &enable);
-#else
-    fcntl(sock, F_SETFL, O_NONBLOCK);
-#endif
-  }
-
-  return sock;
-}
+int host_socket = -1;
 
 #define HOST_PKTBUF_SIZE 1024
 #ifdef _WIN32
@@ -441,7 +452,6 @@ void *ps2link_host_thread(void *hostname)
   } packet;
   char pkt_hdr[6];
   int ret = 0;
-  int host_socket = -1;
 
 #ifdef _WIN32
   // The WSAStartup() call seems to be needed in each thread
@@ -449,19 +459,26 @@ void *ps2link_host_thread(void *hostname)
 #endif
 
   // Connect to the request port.
-  fprintf_locked(stdout, 0,"host: Waiting on connection...\n");
-  while (host_socket < 0 && !ps2link_exit) {
-  	host_socket = ps2link_connect_host((char*)hostname);
+  fprintf_locked(stdout, 0, "host: Opening connection to %s/%u.\n",
+                   hostname, HOST_TCP_PORT);
+
+  while (!host_exit && host_socket < 0) {
+    host_socket = network_connect(hostname, HOST_TCP_SERV, SOCK_STREAM);
+  }
+
+  if (host_socket > 0) {
+    fprintf_locked(stdout, 0, "host: Connection ready.\n");
   }
 
   // Loop forever...
-  while(!ps2link_exit) {
+  while(!host_exit) {
 
-      // Prevent recv() from blocking
-      if (network_wait1(host_socket, -1) > 0) {
+      if ((ret = network_wait_read(host_socket, -1)) > 0) {
+      if (ret == -1) continue;
 
       memset(pkt_hdr, 0, 6);
-      network_receive_all(host_socket, pkt_hdr, 6);
+      ret = network_receive_all(host_socket, pkt_hdr, 6);
+      if (ret == -1) continue;
 
       memcpy(&packet.number, pkt_hdr,   HOST_INT_SIZE);
       memcpy(&packet.length, pkt_hdr+4, HOST_SHT_SIZE);
@@ -475,7 +492,7 @@ void *ps2link_host_thread(void *hostname)
 
 #ifdef DEBUG
       if (old_req != new_req)
-        fprintf_locked(stdout, 0, "New request = 0x%X\n",new_req);
+        fprintf_locked(stdout, 0, "host: New request = 0x%X\n",new_req);
 #endif
 
       if (new_req == HOST_OPEN_REQ)
@@ -504,21 +521,20 @@ void *ps2link_host_thread(void *hostname)
 	ret = host_ioctl(host_socket, (char*)&packet);
 
       if (ret < 0)
-	fprintf_locked(stderr, 0, "Error: host: reply failed\n");
+	fprintf_locked(stderr, 0, "host: Reply failed.\n");
 
       // Reset the timeout counter.
       ps2link_counter = 0;
     }
+
   }
 
   host_cleanup();
 
-  sleep_ms(5);
-
   if (host_socket > 0)
     if (network_disconnect(host_socket) < 0) {
 #ifdef DEBUG
-      fprintf_locked(stderr, 0, "Error: closing host: socket failed\n");
+      fprintf_locked(stderr, 0, "host: Closing connection failed.\n");
 #endif
     }
 
@@ -526,10 +542,8 @@ void *ps2link_host_thread(void *hostname)
   network_cleanup();
 #endif
 
-#ifdef DEBUG
-  fprintf_locked(stdout, 0, "host thread closed\n");
-#endif
-
+  fprintf_locked(stdout, 0, "host: Disconnected.\n");
+  host_exit_status = 1;
 #ifndef _WIN32
   return NULL;
 #endif

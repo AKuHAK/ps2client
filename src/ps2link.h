@@ -11,11 +11,11 @@ int ps2link_mainloop(int timeout);
 int ps2link_create_threads(char *hostname);
 
 #ifdef _WIN32
-void ps2link_console_thread(void *hostname);
+void ps2link_tty0_thread(void *hostname);
 
 void ps2link_host_thread(void *hostname);
 #else
-void *ps2link_console_thread(void *hostname);
+void *ps2link_tty0_thread(void *hostname);
 
 void *ps2link_host_thread(void *hostname);
 #endif

@@ -14,7 +14,7 @@
 #include "ps2netfs.h"
 #include "utility.h"
 
-#define PS2NETFS_TCP_PORT	"18195"
+#define PS2NETFS_TCP_SERV	"18195"
 
 #define PS2NETFS_INT_SIZE	4
 #define PS2NETFS_SHT_SIZE	2
@@ -23,21 +23,14 @@
 int ps2netfs_connect(char *hostname)
 {
   int sock = -1;
-#ifdef _WIN32
-  u_long mode = 1;
-#endif
 
-  sock = network_connect(hostname, PS2NETFS_TCP_PORT, SOCK_STREAM);
+  sock = network_connect(hostname, PS2NETFS_TCP_SERV, SOCK_STREAM);
 
-  if (sock > 0) {
-#ifdef _WIN32
-    ioctlsocket(sock, FIONBIO, &mode);
-#else
-    fcntl(sock, F_SETFL, O_NONBLOCK);
-#endif
-  }
-  else
+  if (sock < 0) {
     fprintf_locked(stderr, 0, "Error: Connection could not be established.\n");
+
+    return -1;
+  }
 
   return sock;
 }
@@ -58,9 +51,18 @@ int ps2netfs_receive_reply(int sock, char *pkt, int id, unsigned short len)
     unsigned int number;   //4
     unsigned short length; //6
   } reply;
+  int ret;
 
   memset(pkt, 0, len);
-  if (network_receive_all(sock, pkt, len) < len) {
+
+  ret = network_receive_all(sock, pkt, len);
+
+  if (ret == -1) {
+     fprintf_locked(stderr, 0, "Reply receive error\n");
+     return -1;
+  }
+
+  if ((unsigned short)ret < len) {
     fprintf_locked(stderr, 0, "Reply length mismatch\n");
     return -1;
   }
@@ -83,7 +85,7 @@ int ps2netfs_send_command(int sock, char *pkt, int id, unsigned short len)
     unsigned int number;   //4
     unsigned short length; //6
   } command;
-
+  int ret;
   command.number = htonl(id);
   command.length = htons(len);
 
@@ -91,7 +93,14 @@ int ps2netfs_send_command(int sock, char *pkt, int id, unsigned short len)
   memcpy(pkt,   &command.number, PS2NETFS_INT_SIZE);
   memcpy(pkt+4, &command.length, PS2NETFS_SHT_SIZE);
 
-  if (network_send(sock, pkt, len) < len)
+  ret = network_send(sock, pkt, len);
+
+  if (ret < 0) {
+    fprintf_locked(stderr, 0, "Command send error\n");
+    return -1;
+  }
+
+  if ((unsigned short)ret < len)
     return -1;
 
   return 0;

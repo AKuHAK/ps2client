@@ -5,7 +5,8 @@
 void host_cleanup(void);
 
 /* host: filesystem network port and types */
-#define HOST_TCP_PORT	"18193"
+#define HOST_TCP_SERV   "18193"
+#define HOST_TCP_PORT	18193
 
 #define HOST_INT_SIZE	4
 #define HOST_SHT_SIZE	2

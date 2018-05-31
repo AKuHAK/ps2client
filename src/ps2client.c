@@ -139,12 +139,15 @@ unop:
   return c;
 }
 
+extern int ps2link_exit;
+extern int host_socket;
 
 int main(int argc, char **argv, char **env)
 {
   int c = 0;
   int i;
   int arg_ints[2];
+  int listen = 0, unknown = 0;
   char cmd_packet[1024];
 
   if (network_init_once() < 0)
@@ -201,154 +204,162 @@ int main(int argc, char **argv, char **env)
   if (ps2link_create_threads(hostname) < 0)
     fprintf_locked(stderr, 0, "Error: creating threads failed\n");
 
-  // Delay to allow threads to start and connect
-  sleep_ms(10);
-
-  if (strcmp(argv[c], "reset") == 0) {
-    c++;
-    ps2link_reset(hostname, cmd_packet);
-    timeout = 0;
-  }
-  else if (strcmp(argv[c], "execiop") == 0) {
-    c++;
-    if (argc - c > 0) {
-      ps2link_execiop(hostname, cmd_packet, argc - c, argv + c);
-    }
-    else {
-      fprintf_locked(stdout, 0, "Usage:\n");
-      fprintf_locked(stdout, 0, "  ps2client execiop <file> [args]\n");
-      timeout = 0;
-    }
-  }
-  else if (strcmp(argv[c], "execee") == 0) {
-   c++;
-    if (argc - c > 0) {
-      ps2link_execee(hostname, cmd_packet, argc - c, argv + c);
-    }
-    else {
-      fprintf_locked(stdout, 0, "Usage:\n");
-      fprintf_locked(stdout, 0, "  ps2client execee <file> [args]\n");
-      timeout = 0;
-    }
-  }
-  else if (strcmp(argv[c], "poweroff") == 0) {
-    c++;
-    ps2link_poweroff(hostname, cmd_packet);
-    timeout = 0;
-  }
-  else if (strcmp(argv[c], "scrdump") == 0) {
-    c++;
-    ps2link_scrdump(hostname, cmd_packet);
-    timeout = 0;
-  }
-  else if (strcmp(argv[c], "netdump") == 0) {
-    c++;
-    ps2link_netdump(hostname, cmd_packet);
-    timeout = 0;
-  }
-  else if (strcmp(argv[c], "dumpmem") == 0) {
-    c++;
-    if (argc - c > 2) {
-      arg_ints[0] = atoi(argv[c]);
-      c++;
-      arg_ints[1] = atoi(argv[c]);
-      c++;
-      ps2link_dumpmem(hostname, cmd_packet, arg_ints[0], arg_ints[1], argv[c]);
-    }
-    else {
-      fprintf_locked(stdout, 0, "Usage:\n");
-      fprintf_locked(stdout, 0, "  ps2client dumpmem <offset> <size> <file>\n");
-      timeout = 0;
-    }
-  }
-  else if (strcmp(argv[c], "startvu") == 0) {
-    c++;
-    if (argc - c > 0) {
-      arg_ints[0] = atoi(argv[c]);
-      ps2link_startvu(hostname, cmd_packet, arg_ints[0]);
-    }
-    else {
-      fprintf_locked(stdout, 0, "Usage:\n");
-      fprintf_locked(stdout, 0, "  ps2client startvu <n>\n");
-      timeout = 0;
-    }
-  }
-  else if (strcmp(argv[c], "stopvu") == 0) {
-    c++;
-    if (argc - c > 0) {
-      arg_ints[0] = atoi(argv[c]);
-      ps2link_stopvu(hostname, cmd_packet, arg_ints[0]);
-      timeout = 0;
-    }
-    else {
-      fprintf_locked(stdout, 0, "Usage:\n");
-      fprintf_locked(stdout, 0, "  ps2client stopvu <n>\n");
-      timeout = 0;
-    }
-  }
-  else if (strcmp(argv[c], "dumpreg") == 0) {
-    c++;
-    if (argc - c > 1) {
-      arg_ints[0] = atoi(argv[c]);
-      c++;
-      ps2link_dumpreg(hostname, cmd_packet, arg_ints[0], argv[c]);
-      timeout = 2;
-    }
-    else {
-      fprintf_locked(stdout, 0, "Usage:\n");
-      fprintf_locked(stdout, 0, "  ps2client dumpreg <type> <file>\n");
-      fprintf_locked(stdout, 0, "Types:\n");
-      fprintf_locked(stdout, 0, "  DMAC 0 INTC 1 Timer 2\n");
-      fprintf_locked(stdout, 0, "  GS   3 SIF  4 FIFO  5\n");
-      fprintf_locked(stdout, 0, "  GIF  6 VIF0 7 VIF1  8\n");
-      fprintf_locked(stdout, 0, "  IPU  9 All 10 VU0  11\n");
-      fprintf_locked(stdout, 0, "  VU1 12\n");
-      timeout = 0;
-    }
-  }
-  else if (strcmp(argv[c], "gsexec") == 0) {
-    c++;
-    if (argc - c > 1) {
-      arg_ints[0] = atoi(argv[c]);
-      c++;
-      ps2link_gsexec(hostname, cmd_packet, arg_ints[0], argv[c]);
-    }
-    else {
-      fprintf_locked(stdout, 0, "Usage:\n");
-      fprintf_locked(stdout, 0, "  ps2client gsexec <size> <file>\n");
-      timeout = 0;
-    }
-  }
-  else if (strcmp(argv[c], "writemem") == 0) {
-    c++;
-    if (argc - c > 2) {
-      arg_ints[0] = atoi(argv[c]);
-      c++;
-      arg_ints[1] = atoi(argv[c]);
-      c++;
-      ps2link_writemem(hostname, cmd_packet, arg_ints[0], arg_ints[1], argv[c]);
-    }
-    else {
-      fprintf_locked(stdout, 0, "Usage:\n");
-      fprintf_locked(stdout, 0, "  ps2client writemem <size> <file>\n");
-      timeout = 0;
-    }
-  }
-  //} else if (strcmp(argv[-1], "iopexcep") == 0) {
-  //  ps2link_command(PS2LINK_COMMAND_IOPEXCEP, hostname);
-  else if (strcmp(argv[c], "listen") == 0) {
+  if (strcmp(argv[c], "listen") == 0) {
     c++;
     // Do nothing
-  } else  {
-    // An unknown or malformed command was requested.
+    listen = 1;
+  }
+
+  // Synchronize when host connects if sending a command.
+  while(host_socket < 0 && !ps2link_exit && !listen) sleep_ms(100);
+
+  if (host_socket > 0 && !listen) {
+    if (strcmp(argv[c], "reset") == 0) {
+      c++;
+      ps2link_reset(hostname, cmd_packet);
+      timeout = 0;
+    }
+    else if (strcmp(argv[c], "execiop") == 0) {
+      c++;
+      if (argc - c > 0) {
+        ps2link_execiop(hostname, cmd_packet, argc - c, argv + c);
+      }
+      else {
+        fprintf_locked(stdout, 0, "Usage:\n");
+        fprintf_locked(stdout, 0, "  ps2client execiop <file> [args]\n");
+        timeout = 0;
+      }
+    }
+    else if (strcmp(argv[c], "execee") == 0) {
+     c++;
+      if (argc - c > 0) {
+        ps2link_execee(hostname, cmd_packet, argc - c, argv + c);
+      }
+      else {
+        fprintf_locked(stdout, 0, "Usage:\n");
+        fprintf_locked(stdout, 0, "  ps2client execee <file> [args]\n");
+        timeout = 0;
+      }
+    }
+    else if (strcmp(argv[c], "poweroff") == 0) {
+      c++;
+      ps2link_poweroff(hostname, cmd_packet);
+      timeout = 0;
+    }
+    else if (strcmp(argv[c], "scrdump") == 0) {
+      c++;
+      ps2link_scrdump(hostname, cmd_packet);
+      timeout = 0;
+    }
+    else if (strcmp(argv[c], "netdump") == 0) {
+      c++;
+      ps2link_netdump(hostname, cmd_packet);
+      timeout = 0;
+    }
+    else if (strcmp(argv[c], "dumpmem") == 0) {
+      c++;
+      if (argc - c > 2) {
+        arg_ints[0] = atoi(argv[c]);
+        c++;
+        arg_ints[1] = atoi(argv[c]);
+        c++;
+        ps2link_dumpmem(hostname, cmd_packet, arg_ints[0], arg_ints[1], argv[c]);
+      }
+      else {
+        fprintf_locked(stdout, 0, "Usage:\n");
+        fprintf_locked(stdout, 0, "  ps2client dumpmem <offset> <size> <file>\n");
+        timeout = 0;
+      }
+    }
+    else if (strcmp(argv[c], "startvu") == 0) {
+      c++;
+      if (argc - c > 0) {
+        arg_ints[0] = atoi(argv[c]);
+        ps2link_startvu(hostname, cmd_packet, arg_ints[0]);
+      }
+      else {
+        fprintf_locked(stdout, 0, "Usage:\n");
+        fprintf_locked(stdout, 0, "  ps2client startvu <n>\n");
+        timeout = 0;
+      }
+    }
+    else if (strcmp(argv[c], "stopvu") == 0) {
+      c++;
+      if (argc - c > 0) {
+        arg_ints[0] = atoi(argv[c]);
+        ps2link_stopvu(hostname, cmd_packet, arg_ints[0]);
+        timeout = 1;
+      }
+      else {
+        fprintf_locked(stdout, 0, "Usage:\n");
+        fprintf_locked(stdout, 0, "  ps2client stopvu <n>\n");
+        timeout = 0;
+      }
+    }
+    else if (strcmp(argv[c], "dumpreg") == 0) {
+      c++;
+      if (argc - c > 1) {
+        arg_ints[0] = atoi(argv[c]);
+        c++;
+        ps2link_dumpreg(hostname, cmd_packet, arg_ints[0], argv[c]);
+        timeout = 2;
+      }
+      else {
+        fprintf_locked(stdout, 0, "Usage:\n");
+        fprintf_locked(stdout, 0, "  ps2client dumpreg <type> <file>\n");
+        fprintf_locked(stdout, 0, "Types:\n");
+        fprintf_locked(stdout, 0, "  DMAC 0 INTC 1 Timer 2\n");
+        fprintf_locked(stdout, 0, "  GS   3 SIF  4 FIFO  5\n");
+        fprintf_locked(stdout, 0, "  GIF  6 VIF0 7 VIF1  8\n");
+        fprintf_locked(stdout, 0, "  IPU  9 All 10 VU0  11\n");
+        fprintf_locked(stdout, 0, "  VU1 12\n");
+        timeout = 0;
+      }
+    }
+    else if (strcmp(argv[c], "gsexec") == 0) {
+      c++;
+      if (argc - c > 1) {
+        arg_ints[0] = atoi(argv[c]);
+        c++;
+        ps2link_gsexec(hostname, cmd_packet, arg_ints[0], argv[c]);
+      }
+      else {
+        fprintf_locked(stdout, 0, "Usage:\n");
+        fprintf_locked(stdout, 0, "  ps2client gsexec <size> <file>\n");
+        timeout = 0;
+      }
+    }
+    else if (strcmp(argv[c], "writemem") == 0) {
+      c++;
+      if (argc - c > 2) {
+        arg_ints[0] = atoi(argv[c]);
+        c++;
+        arg_ints[1] = atoi(argv[c]);
+        c++;
+        ps2link_writemem(hostname, cmd_packet, arg_ints[0], arg_ints[1], argv[c]);
+      }
+      else {
+        fprintf_locked(stdout, 0, "Usage:\n");
+        fprintf_locked(stdout, 0, "  ps2client writemem <size> <file>\n");
+        timeout = 0;
+      }
+    } else {
+      unknown = 1;
+    }
+    //} else if (strcmp(argv[-1], "iopexcep") == 0) {
+    //  ps2link_command(PS2LINK_COMMAND_IOPEXCEP, hostname);
+
+    if (!unknown)
+      fprintf_locked(stdout, 0, "host: Command sent.\n");
+  }
+
+  if (unknown) {
+    // An unknown command was requested.
     fprintf_locked(stderr, 0, "Error: Unrecognized command.\n");
     timeout = 0;
   }
 
   ps2link_mainloop(timeout);
-
-  // Allow any last second errors to print out
-  sleep_ms(10);
 
 #ifdef _WIN32
   network_cleanup();

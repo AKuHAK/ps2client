@@ -36,7 +36,7 @@
   #   at the top of utility.c.
   #
   #   -DUNIX_TERM
-  #   Use Unix-style escape codes for color output for PS2Link stdout. The color
+  #   Use ANSI color codes for color output for PS2Link stdout. The color
   #   is defined at the top of utility.c.
   #
   #   -DDEBUG
