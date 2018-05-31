@@ -309,6 +309,11 @@ int fsclient_get(int sock, char *pkt, char *source, char *destination)
 
   // Output the display header.
   fprintf_locked(stdout, 0, "\n [%s --> %s]\n\n", source, destination);
+  fprintf_locked(stdout, 0, "\n" 
+"\
+  Warning: Interrupting the transfer will leave open file descriptors and will\
+\n\
+           require a reset to fix.\n\n");
 
   while(total < size) {
 
@@ -392,6 +397,11 @@ int fsclient_send(int sock, char *pkt, char *source, char *destination)
 
   // Output the display header.
   fprintf_locked(stdout, 0, "\n [%s --> %s]\n\n", source, destination);
+  fprintf_locked(stdout, 0, "\n"
+"\
+  Warning: Interrupting the transfer will leave open file descriptors and will\
+\n\
+           require a reset to fix.\n\n");
 
   while(total < size) {
 
