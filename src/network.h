@@ -25,6 +25,8 @@ int network_receive(int sock, void *buffer, int size);
 
 int network_receive_all(int sock, void *buffer, int size);
 
+void network_stop_transfer(void);
+
 int network_disconnect(int sock);
 
 #ifdef _WIN32

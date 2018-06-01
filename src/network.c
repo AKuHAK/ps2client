@@ -13,12 +13,23 @@
  #include <fcntl.h>
  #include <netdb.h>
  #include <pthread.h>
+ #include <errno.h>
 #endif
 
 #include "network.h"
 #include "utility.h"
 
 static pthread_mutex_t network_mutex;
+static int stop_transfer = 0;
+
+
+/* Signals that sends and receives should stop. Only interrupt handlers should
+   call this. */
+void network_stop_transfer(void)
+{
+  stop_transfer = 1;
+}
+
 
 /* Valid IPs and hostnames should pass even if the service is unavailable. */
 int network_validate_hostname(char *hostname, char *service, int type)
@@ -253,14 +264,32 @@ int network_send(int sock, void *buffer, int size)
   do {
     sent = send(sock, ((char*)buffer)+total, size - total, 0);
 
-    if (sent < 0)
+    if (stop_transfer)
       return -1;
+
+    if (sent < 0) {
+
+#ifdef _WIN32
+      if (WSAGetLastError() == WSAEWOULDBLOCK)
+        continue;
+#else
+      if (errno == EAGAIN)
+        continue;
+
+      if (errno == EWOULDBLOCK)
+        continue;
+#endif
+
+      return -1;
+    }
 
     if (!sent)
       return -1;
 
     if (sent > 0)
       total += sent;
+
+
 
   } while (total != size);
 
@@ -346,11 +375,26 @@ int network_receive_all(int sock, void *buffer, int size)
   do {
     recvd = recv(sock, ((char*)buffer)+total, size - total, 0);
 
-    if (recvd < 0)
+    if (stop_transfer)
       return -1;
 
+    if (recvd < 0) {
+#ifdef _WIN32
+      if (WSAGetLastError() == WSAEWOULDBLOCK)
+        continue;
+#else
+      if (errno == EAGAIN)
+        continue;
+
+      if (errno == EWOULDBLOCK)
+        continue;
+#endif
+      return -1;
+    }
     if (!recvd)
       return -1;
+
+
 
     if (recvd > 0)
       total += recvd;

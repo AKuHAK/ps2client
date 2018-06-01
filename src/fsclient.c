@@ -5,10 +5,13 @@
  #define WIN32_LEAN_AND_MEAN
  #endif
  #include <winsock2.h>
+ #include <process.h>
 #else
  #include <ctype.h>
  #include <string.h>
  #include <unistd.h>
+ #include <signal.h>
+ #include <stdlib.h>
  #include <netinet/in.h>
  #include <sys/socket.h>
 #endif
@@ -22,6 +25,78 @@
 char hostname[256] = {"192.168.0.10"};
 
 #define PS2NETFS_PACKET_MAX	4096
+
+int ps2netfs_exit = 0;
+
+#ifdef _WIN32
+BOOL WINAPI ConsoleHandler(DWORD event)
+{
+  switch(event) {
+    case CTRL_C_EVENT:
+    case CTRL_BREAK_EVENT:
+    case CTRL_CLOSE_EVENT:
+
+      // If it didn't exit from the first signal, let the default event
+      // handler handle the process.
+      if (ps2netfs_exit) return FALSE;
+
+      // Signal current sends and receives to stop.
+      network_stop_transfer();
+
+      ps2netfs_exit = 1;
+  
+      return TRUE;
+  }
+
+  return FALSE;
+}
+#else
+void sig_handler(int signo)
+{
+  switch (signo) {
+    case SIGHUP:
+    case SIGINT:
+    case SIGQUIT:
+    case SIGTERM:
+
+      // If it didn't exit from the first signal, force exit
+      if (ps2netfs_exit) exit(1);
+
+      // Signal current sends and receives to stop.
+      network_stop_transfer();
+
+      ps2netfs_exit = 1;
+
+      break;
+    default:
+      break;
+  }
+}
+#endif
+
+int ps2netfs_register_sighandler(void)
+{
+#ifdef _WIN32
+  if (!SetConsoleCtrlHandler((PHANDLER_ROUTINE)ConsoleHandler,TRUE)) {
+    return -1;
+  }
+#else
+  struct sigaction sigIntHandler;
+
+  sigIntHandler.sa_handler = sig_handler;
+  sigemptyset(&sigIntHandler.sa_mask);
+  sigIntHandler.sa_flags = 0;
+
+  // Set handler for Ctrl+C, Ctrl+D, exit, and soft terminate
+  if (sigaction(SIGHUP,  &sigIntHandler, NULL) ||
+      sigaction(SIGINT,  &sigIntHandler, NULL) ||
+      sigaction(SIGQUIT, &sigIntHandler, NULL) ||
+      sigaction(SIGTERM, &sigIntHandler, NULL)) {
+    return -1;
+  }
+#endif
+ return 0;
+}
 
 int print_fsclient_usage(void)
 {
@@ -180,6 +255,8 @@ int main(int argc, char **argv, char **env)
     fprintf_deinit_once();
     return -2;
   }
+
+  ps2netfs_register_sighandler();
 
   if (!strcmp(argv[c], "get")) {
     c++;
@@ -509,7 +586,7 @@ int fsclient_lsdev(int sock, char *pkt)
     }
     else if (!strcmp(temp, "dev9x")) {
       fprintf_locked(stdout, 0, "\
-  dev9x		Blah blah blah.\n");
+  dev9x		DEV9 interface driver.\n");
     }
     else
     {

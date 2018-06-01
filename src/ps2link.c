@@ -68,6 +68,9 @@ BOOL WINAPI ConsoleHandler(DWORD event)
       // handler handle the process.
       if (ps2link_exit) return FALSE;
 
+      // Signal current sends and receives to stop.
+      network_stop_transfer();
+
       // Signal the threads to exit
       ps2link_exit_threads();
 
@@ -87,6 +90,9 @@ void sig_handler(int signo)
 
       // If it didn't exit from the first signal, force exit
       if (ps2link_exit) exit(1);
+
+      // Signal current sends and receives to stop.
+      network_stop_transfer();
 
       // Signal the threads to exit
       ps2link_exit_threads();
