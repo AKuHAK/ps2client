@@ -94,7 +94,7 @@
   # Rules
   all: obj bin bin/$(FSCLIENT_BIN) bin/$(PS2CLIENT_BIN)
 
-  clean: obj
+  clean: obj bin
 	cd obj && $(RM) *.o
 	cd bin && $(RM) $(FSCLIENT_BIN) $(PS2CLIENT_BIN)
 
