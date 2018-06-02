@@ -208,6 +208,8 @@ int ps2link_execiop(char *hostname, char *pkt, int argc, char **argv)
   } command;
 
   command.argc = htonl(argc);
+
+  memset(command.argv, 0, 256);
   fix_argv(command.argv, argv);
 
   memset(pkt, 0, 266);
@@ -226,7 +228,10 @@ int ps2link_execee(char *hostname, char *pkt, int argc, char **argv)
     char argv[256];	     //266
   } command;
 
+
   command.argc = htonl(argc);
+
+  memset(command.argv, 0, 256);
   fix_argv(command.argv, argv);
 
   memset(pkt, 0, 266);
