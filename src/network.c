@@ -148,11 +148,11 @@ int network_connect(char *hostname, char *service, int type)
     ret = network_wait_rw(sock);
       
 #ifndef _WIN32
-    if (ret > 1) {
+    if (ret >= 1) {
       getsockopt(sock, SOL_SOCKET, SO_ERROR,
                       &sockopt, &optsize);
       if (!sockopt)
-        ret = 0;
+        ret = 1;
     }
 #else
 #ifdef DEBUG
