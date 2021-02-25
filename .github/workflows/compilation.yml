@@ -40,7 +40,7 @@ jobs:
 
     - name: Compile windows version with cross-compilator
       run: |
-        make -f Makefile.mingw32 --trace
+        make --trace
         
     - name: Get short SHA
       id: slug
