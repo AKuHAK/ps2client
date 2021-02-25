@@ -312,7 +312,7 @@ int network_wait(int sock, int timeout)
       return -1;
   }
   else {
-    if (select(FD_SETSIZE, &nfds, NULL, NULL, &tv) < 0);
+    if (select(FD_SETSIZE, &nfds, NULL, NULL, &tv) < 0)
       return -1;
   }
 
