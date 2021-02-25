@@ -16,7 +16,7 @@ jobs:
 
     - name: Compile native versions
       run: |
-        make --debug
+        make -DUNIX_TERM -DDEBUG --debug
         
     - name: Get short SHA
       id: slug
@@ -40,7 +40,7 @@ jobs:
 
     - name: Compile windows version with cross-compilator
       run: |
-        make --trace
+        make -DWINDOWS_CMD -DDEBUG --trace
         
     - name: Get short SHA
       id: slug
