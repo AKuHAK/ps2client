@@ -40,7 +40,7 @@ jobs:
 
     - name: Compile windows version with cross-compilator
       run: |
-        make --trace CCFLAGS+=-DWINDOWS_CMD CCFLAGS+=-DDEBUG
+        make --trace CC = i686-w64-mingw32.static-gcc CCFLAGS+=-DWINDOWS_CMD CCFLAGS+=-DDEBUG
 
     - name: Get short SHA
       id: slug
