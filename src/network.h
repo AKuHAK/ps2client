@@ -34,4 +34,3 @@ int network_cleanup(void);
 #endif
 
 #endif /*__NETWORK_H__*/
-

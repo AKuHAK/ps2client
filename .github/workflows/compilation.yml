@@ -10,62 +10,62 @@ jobs:
     strategy:
       matrix:
         os: [macos-latest, ubuntu-latest]
-        
-    steps:       
+
+    steps:
     - uses: actions/checkout@v2
 
     - name: Compile native versions
       run: |
-        make -DUNIX_TERM -DDEBUG --debug
-        
+        make --debug CCFLAGS+=-DUNIX_TERM CCFLAGS+=-DDEBUG
+
     - name: Get short SHA
       id: slug
       run: echo "::set-output name=sha8::$(echo ${GITHUB_SHA} | cut -c1-8)"
 
     - name: Create tar archive (keep executable bit)
       run: tar -zcvf ps2client-${{ steps.slug.outputs.sha8 }}-${{matrix.os}}.tar.gz bin
-        
+
     - uses: actions/upload-artifact@v2
       with:
         name: ps2client-${{ steps.slug.outputs.sha8 }}-${{matrix.os}}
         path: |
           *tar.gz
-          
+
   build-win:
     runs-on: ubuntu-latest
     container: dockcross/windows-static-x86:latest
-    
-    steps:       
+
+    steps:
     - uses: actions/checkout@v2
 
     - name: Compile windows version with cross-compilator
       run: |
-        make -DWINDOWS_CMD -DDEBUG --trace
-        
+        make --trace CCFLAGS+=-DWINDOWS_CMD CCFLAGS+=-DDEBUG
+
     - name: Get short SHA
       id: slug
       run: echo "::set-output name=sha8::$(echo ${GITHUB_SHA} | cut -c1-8)"
 
     - name: Create tar archive
       run: tar -zcvf ps2client-${{ steps.slug.outputs.sha8 }}-windows-latest.tar.gz bin
-        
+
     - uses: actions/upload-artifact@v2
       with:
         name: ps2client-${{ steps.slug.outputs.sha8 }}-windows-latest
         path: |
           *tar.gz
-          
+
   release:
     needs: [build, build-win]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/master'
     steps:
     - uses: actions/checkout@v2
-    
+
     - name: Get short SHA
       id: slug
       run: echo "::set-output name=sha8::$(echo ${GITHUB_SHA} | cut -c1-8)"
-      
+
     - name: Download Mac artifact
       uses: actions/download-artifact@v2
       with:
@@ -91,7 +91,7 @@ jobs:
         title: "Development build"
         files: |
           *tar.gz
-          
+
     - name: Create Tagged Release Draft
       if: startsWith(github.ref, 'refs/tags/v')
       uses: marvinpinto/action-automatic-releases@latest
