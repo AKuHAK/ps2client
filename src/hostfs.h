@@ -23,9 +23,10 @@ void host_cleanup(void);
 #define HOST_REMOVE_REQ   0xBABE0191
 #define HOST_MKDIR_REQ    0xBABE01A1
 #define HOST_RMDIR_REQ    0xBABE01B1
-#define HOST_IOCTL_REQ    0xBABE01C1
-#define HOST_DEVCTL_REQ   0xBABE01D1
-#define HOST_IOCTL2_REQ   0xBABE01E1
+#define HOST_GETSTAT_REQ  0xBABE01C1
+#define HOST_IOCTL_REQ    0xBABE01D1
+#define HOST_DEVCTL_REQ   0xBABE01E1
+#define HOST_IOCTL2_REQ   0xBABE01F1
 
 int host_verify_request(char *pkt, int id, unsigned short len);
 
@@ -53,7 +54,7 @@ int host_mkdir(int sock, char *pkt);
 
 int host_rmdir(int sock, char *pkt);
 
-// getstat - unimplemented
+// int host_getstat(int sock, char *pkt); // prototype
 
 // chstat - unimplemented
 
@@ -89,9 +90,10 @@ int host_rmdir(int sock, char *pkt);
 #define HOST_REMOVE_REPLY   0xBABE0192
 #define HOST_MKDIR_REPLY    0xBABE01A2
 #define HOST_RMDIR_REPLY    0xBABE01B2
-#define HOST_IOCTL_REPLY    0xBABE01C2
-#define HOST_DEVCTL_REPLY   0xBABE01D2
-#define HOST_IOCTL2_REPLY   0xBABE01E2
+#define HOST_GETSTAT_REPLY  0xBABE01C2
+#define HOST_IOCTL_REPLY    0xBABE01D2
+#define HOST_DEVCTL_REPLY   0xBABE01E2
+#define HOST_IOCTL2_REPLY   0xBABE01F2
 
 int host_send_reply(int sock, char *pkt, int id, unsigned short len,
                     int result);

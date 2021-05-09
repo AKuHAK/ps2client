@@ -496,7 +496,7 @@ int host_readdir(int sock, char *pkt)
  struct stat stats;
 #endif
 
- struct tm loctime;
+ struct tm *loctime;
  char tname[512];
  int i;
  DIR *dir              = NULL;
@@ -579,13 +579,13 @@ int host_readdir(int sock, char *pkt)
  // ctime
  if (stats.st_ctime >= 0)
  {
-  localtime_r(&(stats.st_ctime), &loctime);
-  reply.ctime[6] = (unsigned char)loctime.tm_year;
-  reply.ctime[5] = (unsigned char)loctime.tm_mon + 1;
-  reply.ctime[4] = (unsigned char)loctime.tm_mday;
-  reply.ctime[3] = (unsigned char)loctime.tm_hour;
-  reply.ctime[2] = (unsigned char)loctime.tm_min;
-  reply.ctime[1] = (unsigned char)loctime.tm_sec;
+  loctime        = localtime(&(stats.st_ctime));
+  reply.ctime[6] = (unsigned char)loctime->tm_year;
+  reply.ctime[5] = (unsigned char)loctime->tm_mon + 1;
+  reply.ctime[4] = (unsigned char)loctime->tm_mday;
+  reply.ctime[3] = (unsigned char)loctime->tm_hour;
+  reply.ctime[2] = (unsigned char)loctime->tm_min;
+  reply.ctime[1] = (unsigned char)loctime->tm_sec;
  }
  else
  {
@@ -597,13 +597,13 @@ int host_readdir(int sock, char *pkt)
  // atime
  if (stats.st_atime >= 0)
  {
-  localtime_r(&(stats.st_atime), &loctime);
-  reply.atime[6] = (unsigned char)loctime.tm_year;
-  reply.atime[5] = (unsigned char)loctime.tm_mon + 1;
-  reply.atime[4] = (unsigned char)loctime.tm_mday;
-  reply.atime[3] = (unsigned char)loctime.tm_hour;
-  reply.atime[2] = (unsigned char)loctime.tm_min;
-  reply.atime[1] = (unsigned char)loctime.tm_sec;
+  loctime        = localtime(&(stats.st_atime));
+  reply.atime[6] = (unsigned char)loctime->tm_year;
+  reply.atime[5] = (unsigned char)loctime->tm_mon + 1;
+  reply.atime[4] = (unsigned char)loctime->tm_mday;
+  reply.atime[3] = (unsigned char)loctime->tm_hour;
+  reply.atime[2] = (unsigned char)loctime->tm_min;
+  reply.atime[1] = (unsigned char)loctime->tm_sec;
  }
  else
  {
@@ -615,13 +615,13 @@ int host_readdir(int sock, char *pkt)
  // mtime
  if (stats.st_mtime >= 0)
  {
-  localtime_r(&(stats.st_mtime), &loctime);
-  reply.mtime[6] = (unsigned char)loctime.tm_year;
-  reply.mtime[5] = (unsigned char)loctime.tm_mon + 1;
-  reply.mtime[4] = (unsigned char)loctime.tm_mday;
-  reply.mtime[3] = (unsigned char)loctime.tm_hour;
-  reply.mtime[2] = (unsigned char)loctime.tm_min;
-  reply.mtime[1] = (unsigned char)loctime.tm_sec;
+  loctime        = localtime(&(stats.st_mtime));
+  reply.mtime[6] = (unsigned char)loctime->tm_year;
+  reply.mtime[5] = (unsigned char)loctime->tm_mon + 1;
+  reply.mtime[4] = (unsigned char)loctime->tm_mday;
+  reply.mtime[3] = (unsigned char)loctime->tm_hour;
+  reply.mtime[2] = (unsigned char)loctime->tm_min;
+  reply.mtime[1] = (unsigned char)loctime->tm_sec;
  }
  else
  {

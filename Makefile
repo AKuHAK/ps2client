@@ -101,8 +101,8 @@
   # This doesn't work 100% on windows commandline
   install:  bin/$(FSCLIENT_BIN) bin/$(PS2CLIENT_BIN)
 	strip bin/$(FSCLIENT_BIN) bin/$(PS2CLIENT_BIN)
-	$(MKDIR) $(PREFIX)/bin
-	cp bin/*client* $(PREFIX)/bin
+	$(MKDIR) $(DESTDIR)$(PREFIX)/bin
+	cp bin/*client* $(DESTDIR)$(PREFIX)/bin
 
   obj:
 	$(MKDIR) obj
