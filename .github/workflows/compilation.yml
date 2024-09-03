@@ -67,17 +67,17 @@ jobs:
       run: echo "::set-output name=sha8::$(echo ${GITHUB_SHA} | cut -c1-8)"
 
     - name: Download Mac artifact
-      uses: actions/download-artifact@v2
+      uses: actions/download-artifact@v4.1.7
       with:
         name: ps2client-${{ steps.slug.outputs.sha8 }}-macos-latest
 
     - name: Download Ubuntu artifact
-      uses: actions/download-artifact@v2
+      uses: actions/download-artifact@v4.1.7
       with:
         name: ps2client-${{ steps.slug.outputs.sha8 }}-ubuntu-latest
 
     - name: Download Windows artifact
-      uses: actions/download-artifact@v2
+      uses: actions/download-artifact@v4.1.7
       with:
         name: ps2client-${{ steps.slug.outputs.sha8 }}-windows-latest
 
